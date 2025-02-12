@@ -80,12 +80,6 @@ Then create a shortcut of the EXE in your Startup folder:
 - **Detection Sensitivity:**  
   The sensitivity for face detection (Haar Cascade) can be adjusted via a slider in the application's UI. This value is saved in the registry and reloaded on startup.
 
-## Screenshots & Demo
-
-*Main interface showing the video feed, countdown timer, and sensitivity control.*
-
-*System tray context menu with options for Debug, Pause/Resume, and Quit.*
-
 ## Contributing
 
 Contributions are welcome! Please fork the repository and create a pull request for any improvements or bug fixes.
