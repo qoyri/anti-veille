@@ -1,0 +1,64 @@
+﻿<Window x:Class="anti_veille.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="anti veille" Height="600" Width="800"
+        WindowStartupLocation="CenterScreen"
+        Background="#FF2C3E50">
+    <Grid Margin="20">
+        <!-- Deux zones : le flux vidéo et le panneau de contrôle -->
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Zone du flux vidéo -->
+        <Border Grid.Row="0" CornerRadius="10" BorderThickness="2" BorderBrush="White" Background="Black" Margin="0,0,0,20">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="15" ShadowDepth="4" Opacity="0.7"/>
+            </Border.Effect>
+            <Image Source="{Binding CameraImage}" Stretch="UniformToFill"/>
+        </Border>
+
+        <!-- Panneau de contrôle en dessous du flux vidéo -->
+        <Border Grid.Row="1" Padding="20" CornerRadius="10">
+            <!-- Fond à dégradé radial subtil et léger -->
+            <Border.Background>
+                <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.9" RadiusY="0.9">
+                    <!-- Couleurs très discrètes pour un effet léger -->
+                    <GradientStop Color="#22FFFFFF" Offset="0"/>
+                    <GradientStop Color="#11000000" Offset="1"/>
+                </RadialGradientBrush>
+            </Border.Background>
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="10" ShadowDepth="2" Opacity="0.4"/>
+            </Border.Effect>
+            <StackPanel Orientation="Vertical" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <!-- Affichage du timer -->
+                <TextBlock Text="{Binding SleepCountdown}" 
+                           FontSize="22" 
+                           FontWeight="SemiBold" 
+                           Foreground="White" 
+                           Margin="0,0,0,10" 
+                           HorizontalAlignment="Center"/>
+                <!-- Libellé du contrôle de sensibilité -->
+                <TextBlock Text="Sensibilité de détection" 
+                           FontSize="16" 
+                           FontWeight="Bold" 
+                           Foreground="White" 
+                           HorizontalAlignment="Center" 
+                           Margin="0,0,0,5"/>
+                <!-- Zone de contrôle avec étiquettes "Min" et "Max" -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <TextBlock Text="Max" VerticalAlignment="Center" Foreground="White" Margin="0,0,5,0"/>
+                    <Slider Minimum="1" Maximum="10" 
+                            Width="250" 
+                            Value="{Binding DetectionSensitivity, Mode=TwoWay}" 
+                            TickFrequency="1" 
+                            IsSnapToTickEnabled="True" 
+                            Margin="5,0"/>
+                    <TextBlock Text="Min" VerticalAlignment="Center" Foreground="White" Margin="5,0,0,0"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
