@@ -98,6 +98,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 - [OpenCV](https://opencv.org/) for the powerful computer vision library.
 - Microsoft for .NET and WPF.
----
-
-Feel free to customize this README with additional details, screenshots, and links relevant to your project.
