@@ -1,14 +1,14 @@
 ﻿# Anti Veille
 
-**Anti Veille** is a Windows utility that monitors user activity—via both a connected webcam (using OpenCV for face detection) and system input (mouse, keyboard, touch, etc.)—and automatically puts the computer into sleep mode after a configurable period of inactivity. It also runs quietly in the system tray, offering easy control over its operation and ensuring it starts automatically with Windows.
+**Anti Veille** is a Windows utility that monitors user activity—via both a connected webcam (using OpenCV for face detection) and system input (mouse, keyboard, touch, etc.)—and automatically puts the computer into lock mode after a configurable period of inactivity. It also runs quietly in the system tray, offering easy control over its operation and ensuring it starts automatically with Windows.
 
 ## Features
 
 - **Dual Activity Detection:**  
   Combines face detection (via webcam) and system input monitoring to reliably determine user activity.
 
-- **Automatic Sleep Mode:**  
-  When no user activity is detected for a specified period, Anti Veille triggers Windows sleep mode.
+- **Automatic Lock session:**  
+  When no user activity is detected for a specified period, Anti Veille triggers Windows lock mode.
 
 - **System Tray Integration:**  
   Runs in the background with a tray icon that allows you to:
@@ -32,7 +32,7 @@
     - **User Input Monitoring:** Utilizes Windows API (`GetLastInputInfo`) to check for recent keyboard, mouse, or touch activity.
 
 2. **Inactivity Timer:**  
-   Both detection methods reset a countdown timer. If no activity is detected (by either method) within a preset time (e.g., 10 minutes), the app puts the computer to sleep.
+   Both detection methods reset a countdown timer. If no activity is detected (by either method) within a preset time (e.g., 10 minutes), the app puts the computer to lock session.
 
 3. **Auto-Installation:**  
    Upon first launch, if the executable is not located in `%LocalAppData%\AntiVeille`, the app:
@@ -74,8 +74,8 @@ Then create a shortcut of the EXE in your Startup folder:
 
 ## Configuration
 
-- **Sleep Timeout:**  
-  The sleep timeout is automatically determined by Windows power settings (via `PowerHelper.GetSleepTimeoutAC()`) and can be overridden in the configuration.
+- **Lock Timeout:**  
+  The Lock timeout is automatically determined by Windows power settings (via `PowerHelper.GetSleepTimeoutAC()`) and can be overridden in the configuration.
 
 - **Detection Sensitivity:**  
   The sensitivity for face detection (Haar Cascade) can be adjusted via a slider in the application's UI. This value is saved in the registry and reloaded on startup.
