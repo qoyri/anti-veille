@@ -1,120 +1,133 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 
-public class PowerHelper
+public class PowerHelperAPI
 {
-    // P/Invoke pour lire la valeur d'une option de puissance (non utilisée ici)
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool LockWorkStation();
+    
+    // P/Invoke pour appeler la fonction native qui met en veille
+    [DllImport("powrprof.dll", SetLastError = true)]
+    private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
+    
+    // Import de PowerGetActiveScheme pour obtenir le schéma de puissance actif
     [DllImport("powrprof.dll", SetLastError = true)]
     private static extern uint PowerGetActiveScheme(IntPtr UserRootPowerKey, out IntPtr ActivePolicyGuid);
-    private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
+
+    // Import de PowerReadACValue pour lire la valeur AC
+    [DllImport("powrprof.dll", SetLastError = true)]
     private static extern uint PowerReadACValue(
         IntPtr RootPowerKey,
         ref Guid SchemeGuid,
         ref Guid SubGroupOfPowerSettingsGuid,
         ref Guid PowerSettingGuid,
         out uint Type,
-        out IntPtr Buffer,
-        out uint BufferSize);
+        IntPtr Buffer,
+        ref uint BufferSize);
 
-    // Pour libérer la mémoire allouée
-    [DllImport("kernel32.dll")]
+    // Import de PowerReadDCValue pour lire la valeur DC
+    [DllImport("powrprof.dll", SetLastError = true)]
+    private static extern uint PowerReadDCValue(
+        IntPtr RootPowerKey,
+        ref Guid SchemeGuid,
+        ref Guid SubGroupOfPowerSettingsGuid,
+        ref Guid PowerSettingGuid,
+        out uint Type,
+        IntPtr Buffer,
+        ref uint BufferSize);
+
+    // Import de LocalFree pour libérer la mémoire allouée
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr LocalFree(IntPtr hMem);
 
-    // GUID du sous-groupe "Sleep"
-    private static Guid GUID_SLEEP_SUBGROUP = new Guid("94AC6D29-73CE-41A6-8098-4F07B43F3B3E");
-
-    // GUID de la valeur "Sleep Timeout"
+    // GUID du sous-groupe "Sleep" (veille)
+    private static Guid GUID_SLEEP_SUBGROUP = new Guid("238c9fa8-0aad-41ed-83f4-97be242c8f20");
+    // GUID du paramètre "Sleep after" (veille après)
     private static Guid GUID_SLEEP_TIMEOUT = new Guid("29f6c1db-86da-48c5-9fdb-f2b67b1f44da");
 
     /// <summary>
-    /// Surcharge permettant de récupérer le délai de mise en veille configuré en mode AC sans fournir le GUID.
+    /// Obtient le GUID du schéma de puissance actif.
+    /// </summary>
+    public static Guid GetActiveSchemeGuid()
+    {
+        IntPtr pActiveScheme;
+        uint res = PowerGetActiveScheme(IntPtr.Zero, out pActiveScheme);
+        if (res != 0)
+        {
+            throw new Win32Exception((int)res, "Erreur lors de la récupération du schéma actif.");
+        }
+        Guid activeScheme = (Guid)Marshal.PtrToStructure(pActiveScheme, typeof(Guid));
+        LocalFree(pActiveScheme);
+        return activeScheme;
+    }
+
+    /// <summary>
+    /// Lit la valeur du paramètre "Sleep after" en mode AC.
     /// </summary>
     public static int GetSleepTimeoutAC()
     {
-        string schemeGuid = GetActiveSchemeGuidFromPowercfg();
-        if (string.IsNullOrEmpty(schemeGuid))
-        {
-            Console.WriteLine("Impossible de récupérer le GUID du schéma actif.");
-            return -1;
-        }
-
-        return GetSleepTimeoutACSheme(schemeGuid);
+        Guid schemeGuid = GetActiveSchemeGuid();
+        return ReadValue(schemeGuid, useAC: true);
     }
 
     /// <summary>
-    /// Récupère le délai de mise en veille configuré en mode AC (en secondes) à partir du GUID du schéma d'alimentation.
-    /// Retourne -1 en cas d'erreur.
+    /// Lit la valeur du paramètre "Sleep after" en mode DC.
     /// </summary>
-    public static int GetSleepTimeoutACSheme(string schemeGuid)
+    public static int GetSleepTimeoutDC()
     {
-        // Préparation de la commande : on utilise /QUERY pour interroger le plan spécifié
-        ProcessStartInfo psi = new ProcessStartInfo
-        {
-            FileName = "powercfg",
-            Arguments = $"/QUERY {schemeGuid}",
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        Process process = Process.Start(psi);
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-
-        // Recherche de la section concernant "Sleep after" (identifiée par son GUID)
-        Regex regex = new Regex(
-            @"Power Setting GUID:\s*29f6c1db-86da-48c5-9fdb-f2b67b1f44da\s*\([^)]*\).*?Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)",
-            RegexOptions.Singleline);
-        Match match = regex.Match(output);
-
-        if (match.Success)
-        {
-            string hexValue = match.Groups[1].Value;
-            if (int.TryParse(hexValue, System.Globalization.NumberStyles.HexNumber, null, out int timeout))
-            {
-                return timeout;
-            }
-        }
-
-        return -1;
+        Guid schemeGuid = GetActiveSchemeGuid();
+        return ReadValue(schemeGuid, useAC: false);
     }
 
-    /// <summary>
-    /// Récupère automatiquement le GUID du schéma d'alimentation actif en utilisant la commande powercfg /GETACTIVESCHEME.
-    /// </summary>
-    private static string GetActiveSchemeGuidFromPowercfg()
+    private static int ReadValue(Guid schemeGuid, bool useAC)
     {
-        ProcessStartInfo psi = new ProcessStartInfo
-        {
-            FileName = "powercfg",
-            Arguments = "/GETACTIVESCHEME",
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+        uint type;
+        // Allouer directement un buffer de 4 octets, puisque la valeur est un DWORD.
+        uint bufferSize = (uint)Marshal.SizeOf(typeof(uint)); // 4 octets
+        IntPtr buffer = Marshal.AllocHGlobal((int)bufferSize);
+        uint res;
 
-        Process process = Process.Start(psi);
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-
-        // Exemple de sortie : "Power Scheme GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c  (High performance)"
-        Regex regex = new Regex(@"Power Scheme GUID:\s*([0-9a-fA-F\-]+)");
-        Match match = regex.Match(output);
-        if (match.Success)
+        if (useAC)
         {
-            return match.Groups[1].Value;
+            res = PowerReadACValue(IntPtr.Zero, ref schemeGuid, ref GUID_SLEEP_SUBGROUP, ref GUID_SLEEP_TIMEOUT,
+                                   out type, buffer, ref bufferSize);
         }
-
-        return null;
-    }
-
-    public static string GetLastErrorMessage(uint errorCode)
-    {
-        return new System.ComponentModel.Win32Exception((int)errorCode).Message;
+        else
+        {
+            res = PowerReadDCValue(IntPtr.Zero, ref schemeGuid, ref GUID_SLEEP_SUBGROUP, ref GUID_SLEEP_TIMEOUT,
+                                   out type, buffer, ref bufferSize);
+        }
+        if (res != 0)
+        {
+            Marshal.FreeHGlobal(buffer);
+            throw new Win32Exception((int)res, "Erreur lors de la lecture de la valeur de puissance.");
+        }
+        int value = Marshal.ReadInt32(buffer);
+        Marshal.FreeHGlobal(buffer);
+        return value;
     }
     
+    /// <summary>
+    /// Verrouille la session Windows.
+    /// </summary>
+    public static bool TriggerLock()
+    {
+        bool result = LockWorkStation();
+        if (!result)
+        {
+            int errorCode = Marshal.GetLastWin32Error();
+            Debug.WriteLine("LockWorkStation failed with error: " + errorCode);
+            throw new Win32Exception(errorCode, "Échec du verrouillage de la session.");
+        }
+        return result;
+    }
+    
+    /// <summary>
+    /// Déclenche la mise en veille ou l'hibernation.
+    /// Attention : cela mettra l'ordinateur en veille/hibernation !
+    /// </summary>
     public static bool TriggerSleep(bool hibernate = false, bool forceCritical = true, bool disableWakeEvent = false)
     {
         bool result = SetSuspendState(hibernate, forceCritical, disableWakeEvent);

@@ -32,6 +32,7 @@ namespace anti_veille.Models
     {
         private VideoCapture capture;
         private CascadeClassifier faceCascade;
+        private CascadeClassifier profileCascade;
         private Timer videoTimer;            // Pour le traitement des frames (~15 FPS)
         private Timer cameraAccessCheckTimer; // Pour vérifier la disponibilité de la caméra
         private bool isProcessingFrame = false;
@@ -42,7 +43,7 @@ namespace anti_veille.Models
         /// <summary>
         /// Instant de la dernière détection de visage.
         /// </summary>
-        public DateTime LastFaceDetected { get; private set; } = DateTime.Now;
+        public DateTime LastFaceDetected { get; set; } = DateTime.Now;
 
         /// <summary>
         /// Se déclenche à chaque fois qu’une frame est traitée.
@@ -76,22 +77,22 @@ namespace anti_veille.Models
         /// En cas d'erreur de téléchargement, affiche une fenêtre pop‑up pour informer l'utilisateur.
         /// Renvoie le chemin complet du fichier cascade.
         /// </summary>
-        private async Task<string> EnsureCascadeFileAsync()
+        private async Task<string> EnsureCascadeFileAsync(string fileName, string url)
         {
             string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AntiVeille");
             if (!Directory.Exists(folder))
             {
                 Directory.CreateDirectory(folder);
             }
-            string filePath = Path.Combine(folder, "haarcascade_frontalface_default.xml");
+            string filePath = Path.Combine(folder, fileName);
             if (!File.Exists(filePath))
             {
                 using (HttpClient client = new HttpClient())
                 {
                     try
                     {
-                        Console.WriteLine("Téléchargement du fichier cascade...");
-                        HttpResponseMessage response = await client.GetAsync("https://ftp.qoyri.fr/?dir=%2Fmnt%2Fcode&file=haarcascade_frontalface_default.xml");
+                        Console.WriteLine("Téléchargement de " + fileName + "...");
+                        HttpResponseMessage response = await client.GetAsync(url);
                         response.EnsureSuccessStatusCode();
                         byte[] content = await response.Content.ReadAsByteArrayAsync();
                         File.WriteAllBytes(filePath, content);
@@ -99,19 +100,19 @@ namespace anti_veille.Models
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine("Erreur lors du téléchargement de la cascade : " + ex.Message);
-                        // Affiche la fenêtre pop-up d'erreur avec les instructions
+                        Console.WriteLine("Erreur lors du téléchargement de " + fileName + " : " + ex.Message);
                         Application.Current.Dispatcher.Invoke(() =>
                         {
                             var errorWindow = new anti_veille.Views.DownloadErrorWindow(folder);
                             errorWindow.ShowDialog();
                         });
-                        throw new Exception("Le téléchargement de la cascade a échoué. Veuillez le télécharger manuellement.", ex);
+                        throw new Exception("Le téléchargement de " + fileName + " a échoué. Veuillez le télécharger manuellement.", ex);
                     }
                 }
             }
             return filePath;
         }
+
 
 
         /// <summary>
@@ -189,21 +190,35 @@ namespace anti_veille.Models
         /// </summary>
         public async void Start()
         {
-            // Vérifie et télécharge le fichier cascade si nécessaire.
-            string cascadePath = await EnsureCascadeFileAsync();
+            // Vérifie et télécharge le fichier cascade frontal si nécessaire.
+            string frontalCascadePath = await EnsureCascadeFileAsync("haarcascade_frontalface_default.xml", "https://ftp.qoyri.fr/?dir=%2Fmnt%2Fcode&file=haarcascade_frontalface_default.xml");
             try
             {
-                faceCascade = new CascadeClassifier(cascadePath);
+                faceCascade = new CascadeClassifier(frontalCascadePath);
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Erreur lors du chargement du classifieur depuis le fichier téléchargé : " + ex.Message);
+                Console.WriteLine("Erreur lors du chargement du cascade frontal : " + ex.Message);
                 throw;
             }
+    
+            // Vérifie et télécharge le fichier cascade pour le profil (similaire à frontal)
+            string profileCascadePath = await EnsureCascadeFileAsync("haarcascade_profileface.xml", "https://ftp.qoyri.fr/?dir=%2Fmnt%2Fcode&file=haarcascade_profileface.xml");
+            try
+            {
+                profileCascade = new CascadeClassifier(profileCascadePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Erreur lors du chargement du cascade de profil : " + ex.Message);
+                throw;
+            }
+    
             LastFaceDetected = DateTime.Now;
             await EnsureCaptureAsync();
             StartTimers();
         }
+
 
         public void Stop()
         {
@@ -238,7 +253,15 @@ namespace anti_veille.Models
 
         public async void ResumeCamera()
         {
-            if (isCameraPaused)
+            bool needRestart = false;
+            lock (captureLock)
+            {
+                if (capture == null || !capture.IsOpened())
+                {
+                    needRestart = true;
+                }
+            }
+            if (needRestart)
             {
                 bool success = false;
                 try
@@ -282,6 +305,8 @@ namespace anti_veille.Models
                             currentApp.UpdateTrayIconColor("ok");
                         }
                     });
+                    // Réinitialiser la dernière détection
+                    LastFaceDetected = DateTime.Now;
                 }
                 else
                 {
@@ -296,7 +321,13 @@ namespace anti_veille.Models
                     ResumeCamera();
                 }
             }
+            else
+            {
+                // Si la caméra est déjà active, réinitialiser simplement le timer interne
+                LastFaceDetected = DateTime.Now;
+            }
         }
+
 
         private void CameraAccessCheckTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
@@ -369,24 +400,48 @@ namespace anti_veille.Models
                             using (Mat resizedGray = new Mat())
                             {
                                 Cv2.Resize(gray, resizedGray, new OpenCvSharp.Size(gray.Width / 3, gray.Height / 3));
-                                Rect[] faces = faceCascade.DetectMultiScale(
+                                
+                                // Détection frontale
+                                Rect[] frontalFaces = faceCascade.DetectMultiScale(
                                     resizedGray,
                                     scaleFactor: 1.2,
                                     minNeighbors: detectionSensitivity,
                                     flags: HaarDetectionTypes.ScaleImage,
                                     minSize: new OpenCvSharp.Size(30, 30));
-                                if (faces.Length > 0)
+                                
+                                // Détection de profil
+                                Rect[] profileFaces = profileCascade.DetectMultiScale(
+                                    resizedGray,
+                                    scaleFactor: 1.2,
+                                    minNeighbors: detectionSensitivity,
+                                    flags: HaarDetectionTypes.ScaleImage,
+                                    minSize: new OpenCvSharp.Size(30, 30));
+                                
+                                // Si l'un ou l'autre détecte un visage, mettre à jour LastFaceDetected.
+                                if (frontalFaces.Length > 0 || profileFaces.Length > 0)
                                 {
                                     LastFaceDetected = DateTime.Now;
-                                    foreach (Rect face in faces)
-                                    {
-                                        Rect scaledFace = new Rect(
-                                            face.X * 3 + roi.X,
-                                            face.Y * 3 + roi.Y,
-                                            face.Width * 3,
-                                            face.Height * 3);
-                                        Cv2.Rectangle(processingFrame, scaledFace, Scalar.Red, 2);
-                                    }
+                                }
+                                
+                                // Dessiner les rectangles pour le frontal
+                                foreach (Rect face in frontalFaces)
+                                {
+                                    Rect scaledFace = new Rect(
+                                        face.X * 3 + roi.X,
+                                        face.Y * 3 + roi.Y,
+                                        face.Width * 3,
+                                        face.Height * 3);
+                                    Cv2.Rectangle(processingFrame, scaledFace, Scalar.Red, 2);
+                                }
+                                // Dessiner les rectangles pour le profil
+                                foreach (Rect face in profileFaces)
+                                {
+                                    Rect scaledFace = new Rect(
+                                        face.X * 3 + roi.X,
+                                        face.Y * 3 + roi.Y,
+                                        face.Width * 3,
+                                        face.Height * 3);
+                                    Cv2.Rectangle(processingFrame, scaledFace, Scalar.Blue, 2);
                                 }
                             }
                         }
@@ -423,6 +478,7 @@ namespace anti_veille.Models
                 isProcessingFrame = false;
             }
         }
+
 
         public void Dispose()
         {
